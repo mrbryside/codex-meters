@@ -18,12 +18,10 @@ bun run tauri:mock
 
 ## Install with curl
 
-For the automatic installer, download the package and install it to `/Applications`:
+For the automatic installer, install the package to `/Applications`:
 
 ```bash
-curl -fL "https://github.com/mrbryside/codex-meters/releases/download/v0.1.0/Codex%20Meters.pkg" -o /tmp/Codex-Meters.pkg \
-  && sudo installer -pkg /tmp/Codex-Meters.pkg -target / \
-  && rm /tmp/Codex-Meters.pkg
+curl -fsSL https://raw.githubusercontent.com/mrbryside/codex-meters/main/install-pkg.sh | sh
 ```
 
 The package installer registers Codex Meters to launch at login and opens it immediately after installation.
@@ -31,8 +29,7 @@ The package installer registers Codex Meters to launch at login and opens it imm
 For an interactive drag-and-drop style installer, which lets you choose the destination folder:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mrbryside/codex-meters/main/install.sh \
-  | sh -s -- "https://github.com/mrbryside/codex-meters/releases/download/v0.1.0/Codex%20Meters_0.1.0_aarch64.dmg"
+curl -fsSL https://raw.githubusercontent.com/mrbryside/codex-meters/main/install.sh | sh
 ```
 
 The release assets are generated with:
