@@ -1,0 +1,4 @@
+{
+  "error": "session_expired",
+  "message": "Local session data could not be read"
+}

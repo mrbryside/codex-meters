@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+
+APP_PATH="/Applications/Codex Meters.app"
+CONSOLE_USER="$(/usr/bin/stat -f '%Su' /dev/console)"
+
+if [ "$CONSOLE_USER" != "root" ] && [ -d "$APP_PATH" ]; then
+  CONSOLE_UID="$(/usr/bin/id -u "$CONSOLE_USER")"
+  /bin/launchctl asuser "$CONSOLE_UID" /usr/bin/sudo -u "$CONSOLE_USER" /usr/bin/open "$APP_PATH" >/dev/null 2>&1 || true
+fi
+
+exit 0

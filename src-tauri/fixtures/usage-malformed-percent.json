@@ -1,0 +1,14 @@
+{
+  "windows": [
+    {
+      "window": "5h",
+      "remainingPercent": 120.0,
+      "resetAt": "2026-07-16T08:00:00Z"
+    },
+    {
+      "window": "7d",
+      "remainingPercent": -5.0,
+      "resetAt": "2026-07-22T00:00:00Z"
+    }
+  ]
+}

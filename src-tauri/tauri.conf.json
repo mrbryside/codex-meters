@@ -1,0 +1,62 @@
+{
+  "productName": "Codex Meters",
+  "mainBinaryName": "codex-token-meter",
+  "version": "0.1.0",
+  "identifier": "com.codex.tokenmeter",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "macOSPrivateApi": true,
+    "security": {
+      "csp": null
+    },
+    "windows": [
+      {
+        "label": "main",
+        "title": "Codex Meters",
+        "width": 280,
+        "height": 124,
+        "x": 1100,
+        "y": 680,
+        "resizable": false,
+        "decorations": false,
+        "shadow": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": false
+      },
+      {
+        "label": "dock-meter",
+        "title": "Codex Meters Dock",
+        "width": 400,
+        "height": 64,
+        "minWidth": 160,
+        "minHeight": 48,
+        "maxWidth": 520,
+        "maxHeight": 180,
+        "x": 1100,
+        "y": 700,
+        "resizable": true,
+        "decorations": false,
+        "shadow": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "visibleOnAllWorkspaces": true,
+        "skipTaskbar": true,
+        "visible": false
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/icon.png"],
+    "macOS": {
+      "infoPlist": "Info.plist"
+    }
+  }
+}

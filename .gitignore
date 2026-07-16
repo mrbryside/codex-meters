@@ -1,0 +1,9 @@
+.DS_Store
+.env
+.env.*
+!.env.mock
+node_modules/
+dist/
+dmg/app/
+src-tauri/target/
+
