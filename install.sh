@@ -3,7 +3,8 @@ set -eu
 
 APP_NAME="Codex Meters.app"
 RELEASE_TAG="${CODEX_METERS_RELEASE_TAG:-v0.1.0}"
-DMG_URL="${1:-${CODEX_METERS_DMG_URL:-https://github.com/mrbryside/codex-meters/releases/download/${RELEASE_TAG}/Codex%20Meters_0.1.0_aarch64.dmg}}"
+ASSET_BASE_URL="${CODEX_METERS_ASSET_BASE_URL:-https://raw.githubusercontent.com/mrbryside/codex-meters/main/releases/${RELEASE_TAG}}"
+DMG_URL="${1:-${CODEX_METERS_DMG_URL:-${ASSET_BASE_URL}/Codex%20Meters_0.1.0_aarch64.dmg}}"
 
 if [ -z "$DMG_URL" ]; then
   echo "Usage: curl -fsSL https://raw.githubusercontent.com/mrbryside/codex-meters/main/install.sh | sh"

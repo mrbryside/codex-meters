@@ -32,7 +32,7 @@ For an interactive drag-and-drop style installer, which lets you choose the dest
 curl -fsSL https://raw.githubusercontent.com/mrbryside/codex-meters/main/install.sh | sh
 ```
 
-The release assets are generated with:
+The installer assets are generated and copied into `releases/v0.1.0/` with:
 
 ```bash
 make export
