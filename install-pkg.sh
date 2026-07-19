@@ -9,8 +9,9 @@ INFO_PLIST="$APP_PATH/Contents/Info.plist"
 BINARY_PATH="$APP_PATH/Contents/MacOS/codex-token-meter"
 EXPECTED_BUNDLE_ID="com.codex.tokenmeter"
 PACKAGE_IDENTIFIER="com.codex.tokenmeter"
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-VERIFY_PKG_SCRIPT="$SCRIPT_DIR/scripts/verify-pkg.sh"
+EXPECTED_BUNDLE_PATH="./Applications/Codex Meters.app/Contents/MacOS/codex-token-meter"
+FORBIDDEN_BUNDLE_PATH="^\\./Codex Meters\\.app(/|$)"
+EXPECTED_POSTINSTALL_PATH="./postinstall"
 
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT INT TERM
@@ -40,25 +41,80 @@ validate_package() {
     return 1
   fi
 
-  if [ -x "$VERIFY_PKG_SCRIPT" ]; then
-    "$VERIFY_PKG_SCRIPT" "$pkg_path"
-    return 0
-  fi
+  local_verify_dir="$tmp_dir/verify"
+  mkdir -p "$local_verify_dir"
+  payload_file_list="$local_verify_dir/payload-files.txt"
+  script_file_list="$local_verify_dir/scripts-files.txt"
 
-  verify_root="$(mktemp -d)"
-  if ! /usr/sbin/pkgutil --expand "$pkg_path" "$verify_root"; then
-    echo "Downloaded package failed to expand: $pkg_path" >&2
-    rm -rf "$verify_root"
+  if ! /usr/sbin/pkgutil --payload-files "$pkg_path" > "$payload_file_list"; then
+    echo "Downloaded package payload inspection failed: $pkg_path" >&2
     return 1
   fi
 
-  if [ ! -r "$verify_root/PackageInfo" ] || [ ! -r "$verify_root/Payload" ] || [ ! -f "$verify_root/Scripts/postinstall" ]; then
-    echo "Downloaded package metadata is incomplete: $pkg_path" >&2
-    rm -rf "$verify_root"
+  if ! /usr/bin/grep -qxF "$EXPECTED_BUNDLE_PATH" "$payload_file_list"; then
+    echo "Payload missing executable bundle path: $EXPECTED_BUNDLE_PATH" >&2
     return 1
   fi
 
-  rm -rf "$verify_root"
+  if /usr/bin/grep -Eq "$FORBIDDEN_BUNDLE_PATH" "$payload_file_list"; then
+    echo "Payload still uses relocatable root bundle path: ./Codex Meters.app" >&2
+    return 1
+  fi
+
+  if ! /usr/bin/xar -xf "$pkg_path" -C "$local_verify_dir" PackageInfo; then
+    echo "Unable to extract PackageInfo from package: $pkg_path" >&2
+    return 1
+  fi
+
+  package_info="$local_verify_dir/PackageInfo"
+  if [ ! -r "$package_info" ]; then
+    echo "PackageInfo not readable: $pkg_path" >&2
+    return 1
+  fi
+
+  if ! /usr/bin/xmllint --noout "$package_info" >/dev/null 2>&1; then
+    echo "PackageInfo is not readable XML: $pkg_path" >&2
+    return 1
+  fi
+
+  if ! /usr/bin/grep -q '^<pkg-info ' "$package_info"; then
+    echo "PackageInfo missing expected pkg-info metadata: $pkg_path" >&2
+    return 1
+  fi
+
+  install_location="$(
+    /usr/bin/xmllint --xpath 'string(/pkg-info/@install-location)' "$package_info" 2>/dev/null || true
+  )"
+  if [ "$install_location" != "/" ]; then
+    echo "PackageInfo has unexpected install-location: ${install_location:-<missing>} (expected /)" >&2
+    return 1
+  fi
+
+  if /usr/bin/grep -q "<relocate" "$package_info"; then
+    echo "PackageInfo contains relocate metadata; install must be non-relocatable." >&2
+    return 1
+  fi
+
+  if ! /usr/bin/xar -xf "$pkg_path" -C "$local_verify_dir" Scripts; then
+    echo "Unable to extract package scripts from package: $pkg_path" >&2
+    return 1
+  fi
+
+  if [ ! -r "$local_verify_dir/Scripts" ]; then
+    echo "Postinstall script is not embedded in package scripts payload." >&2
+    return 1
+  fi
+
+  if ! /usr/bin/gunzip -c "$local_verify_dir/Scripts" | /usr/bin/cpio -it > "$script_file_list"; then
+    echo "Failed to read embedded package scripts payload: $pkg_path" >&2
+    return 1
+  fi
+
+  if ! /usr/bin/grep -qxF "$EXPECTED_POSTINSTALL_PATH" "$script_file_list"; then
+    echo "postinstall script is not embedded in package scripts payload." >&2
+    return 1
+  fi
+
   return 0
 }
 

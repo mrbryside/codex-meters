@@ -3,6 +3,7 @@ set -eu
 
 EXPECTED_BUNDLE_PATH="./Applications/Codex Meters.app/Contents/MacOS/codex-token-meter"
 FORBIDDEN_BUNDLE_PATH="^\\./Codex Meters\\.app(/|$)"
+EXPECTED_POSTINSTALL_PATH="./postinstall"
 
 if [ "$#" -ne 1 ]; then
   echo "Usage: $0 <path-to-package>" >&2
@@ -22,16 +23,32 @@ if [ ! -s "$PACKAGE_PATH" ]; then
 fi
 
 TMP_DIR="$(mktemp -d)"
-EXPANDED="$TMP_DIR/expanded"
 PAYLOAD_FILES="$TMP_DIR/payload-files.txt"
+SCRIPT_FILES="$TMP_DIR/scripts-files.txt"
 trap 'rm -rf "$TMP_DIR"' EXIT INT TERM
+mkdir -p "$TMP_DIR"
 
-if ! /usr/sbin/pkgutil --expand "$PACKAGE_PATH" "$EXPANDED"; then
-  echo "Unable to expand package metadata: $PACKAGE_PATH" >&2
+if ! /usr/sbin/pkgutil --payload-files "$PACKAGE_PATH" > "$PAYLOAD_FILES"; then
+  echo "Unable to read package payload list: $PACKAGE_PATH" >&2
   exit 1
 fi
 
-PACKAGE_INFO="$EXPANDED/PackageInfo"
+if ! /usr/bin/grep -qxF "$EXPECTED_BUNDLE_PATH" "$PAYLOAD_FILES"; then
+  echo "Payload missing executable bundle path: $EXPECTED_BUNDLE_PATH" >&2
+  exit 1
+fi
+
+if /usr/bin/grep -Eq "$FORBIDDEN_BUNDLE_PATH" "$PAYLOAD_FILES"; then
+  echo "Payload still uses relocatable root bundle path: ./Codex Meters.app" >&2
+  exit 1
+fi
+
+if ! /usr/bin/xar -xf "$PACKAGE_PATH" -C "$TMP_DIR" PackageInfo; then
+  echo "Unable to extract PackageInfo: $PACKAGE_PATH" >&2
+  exit 1
+fi
+
+PACKAGE_INFO="$TMP_DIR/PackageInfo"
 if [ ! -r "$PACKAGE_INFO" ]; then
   echo "PackageInfo not readable: $PACKAGE_PATH" >&2
   exit 1
@@ -61,31 +78,22 @@ if /usr/bin/grep -q "<relocate" "$PACKAGE_INFO"; then
   exit 1
 fi
 
-PAYLOAD_PATH="$EXPANDED/Payload"
-if [ ! -r "$PAYLOAD_PATH" ]; then
-  echo "Payload not readable: $PACKAGE_PATH" >&2
+if ! /usr/bin/xar -xf "$PACKAGE_PATH" -C "$TMP_DIR" Scripts; then
+  echo "Unable to extract package scripts payload: $PACKAGE_PATH" >&2
   exit 1
 fi
 
-if /usr/bin/gunzip -c "$PAYLOAD_PATH" | /usr/bin/cpio -it > "$PAYLOAD_FILES"; then
-  :
-else
-  echo "Failed to read package payload: $PACKAGE_PATH" >&2
+if [ ! -r "$TMP_DIR/Scripts" ]; then
+  echo "Postinstall script is not embedded in package scripts payload." >&2
   exit 1
 fi
 
-if ! /usr/bin/grep -qxF "$EXPECTED_BUNDLE_PATH" "$PAYLOAD_FILES"; then
-  echo "Payload missing executable bundle path: $EXPECTED_BUNDLE_PATH" >&2
+if ! /usr/bin/gunzip -c "$TMP_DIR/Scripts" | /usr/bin/cpio -it > "$SCRIPT_FILES"; then
+  echo "Failed to read package scripts payload: $PACKAGE_PATH" >&2
   exit 1
 fi
 
-if /usr/bin/grep -Eq "$FORBIDDEN_BUNDLE_PATH" "$PAYLOAD_FILES"; then
-  echo "Payload still uses relocatable root bundle path: ./Codex Meters.app" >&2
-  exit 1
-fi
-
-POSTINSTALL_PATH="$EXPANDED/Scripts/postinstall"
-if [ ! -x "$POSTINSTALL_PATH" ]; then
+if ! /usr/bin/grep -qxF "$EXPECTED_POSTINSTALL_PATH" "$SCRIPT_FILES"; then
   echo "postinstall script is not embedded in package scripts payload." >&2
   exit 1
 fi
