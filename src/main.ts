@@ -119,9 +119,17 @@ const render = () => {
   });
 };
 
-const controller = createRefreshController(store, render, mockUsage ? async () => ({ snapshot: mockSnapshot, error: false }) : api.refresh);
+// Only the main popover window owns refresh scheduling and its interval timer.
+// The dock-meter window subscribes to "usage-updated" events and renders,
+// but must not start its own refresh timer. createRefreshController is only
+// called for the main window so its setInterval never runs on dock.
+const controller: { refresh: () => void; setInterval: (s: number) => void } = isDockMeter
+  ? { refresh: () => {}, setInterval: (_s: number) => {} }
+  : createRefreshController(store, render, mockUsage ? async () => ({ snapshot: mockSnapshot, error: false }) : api.refresh);
 
 api.snapshot().then((response) => { store.snapshot = mockUsage ? mockSnapshot : response.snapshot; store.loading = false; render(); }).catch(() => { store.snapshot = mockUsage ? mockSnapshot : null; store.loading = false; render(); });
 api.settings().then((settings) => { store.settings = settings; settingsLoaded = true; render(); }).catch(() => { settingsLoaded = true; render(); });
 api.onUsage((snapshot: UsageSnapshot) => { store.snapshot = mockUsage ? mockSnapshot : snapshot; render(); });
-controller.refresh();
+if (!isDockMeter) {
+  controller.refresh();
+}

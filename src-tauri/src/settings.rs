@@ -16,7 +16,9 @@ pub struct PersistedSettings {
     pub dock_meter_geometry: Option<crate::state::DockMeterGeometry>,
 }
 
-fn default_refresh_interval() -> u64 { 60 }
+fn default_refresh_interval() -> u64 {
+    60
+}
 
 impl Default for PersistedSettings {
     fn default() -> Self {
@@ -49,11 +51,15 @@ pub fn load_settings(app_handle: &tauri::AppHandle) -> PersistedSettings {
 }
 
 /// Persist settings to disk.
-pub fn save_settings(app_handle: &tauri::AppHandle, settings: &PersistedSettings) -> Result<(), String> {
+pub fn save_settings(
+    app_handle: &tauri::AppHandle,
+    settings: &PersistedSettings,
+) -> Result<(), String> {
     let path = settings_path(app_handle);
     // Ensure parent directory exists.
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("Failed to create settings directory: {e}"))?;
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create settings directory: {e}"))?;
     }
     let contents = serde_json::to_string_pretty(settings)
         .map_err(|e| format!("Failed to serialize settings: {e}"))?;
@@ -66,12 +72,22 @@ pub fn load_into_state(app_handle: &tauri::AppHandle, state: &crate::state::AppS
 
 impl From<PersistedSettings> for crate::state::AppSettings {
     fn from(value: PersistedSettings) -> Self {
-        Self { dock_meter_visible: value.dock_meter_visible, launch_at_login: value.launch_at_login, refresh_interval_seconds: value.refresh_interval_seconds, dock_meter_geometry: value.dock_meter_geometry.clone() }
+        Self {
+            dock_meter_visible: value.dock_meter_visible,
+            launch_at_login: value.launch_at_login,
+            refresh_interval_seconds: value.refresh_interval_seconds,
+            dock_meter_geometry: value.dock_meter_geometry.clone(),
+        }
     }
 }
 
 impl From<&crate::state::AppSettings> for PersistedSettings {
     fn from(value: &crate::state::AppSettings) -> Self {
-        Self { dock_meter_visible: value.dock_meter_visible, launch_at_login: value.launch_at_login, refresh_interval_seconds: value.refresh_interval_seconds, dock_meter_geometry: value.dock_meter_geometry.clone() }
+        Self {
+            dock_meter_visible: value.dock_meter_visible,
+            launch_at_login: value.launch_at_login,
+            refresh_interval_seconds: value.refresh_interval_seconds,
+            dock_meter_geometry: value.dock_meter_geometry.clone(),
+        }
     }
 }

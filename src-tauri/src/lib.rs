@@ -2,38 +2,90 @@ pub mod commands;
 pub mod error;
 pub mod login_launch;
 pub mod provider;
-pub mod state;
 pub mod settings;
+pub mod state;
 pub mod usage;
 
-pub use commands::{get_app_settings, get_usage_snapshot, refresh_usage, set_dock_meter_geometry, set_dock_meter_visible, set_launch_at_login, set_refresh_interval};
+pub use commands::{
+    get_app_settings, get_usage_snapshot, refresh_usage, set_dock_meter_geometry,
+    set_dock_meter_visible, set_launch_at_login, set_refresh_interval,
+};
 pub use error::AppError;
-pub use provider::{CodexUsageProvider, CodexAppServerProvider, ProviderError, ProviderSnapshot, ProviderWindow};
+pub use provider::{
+    CodexAppServerProvider, CodexUsageProvider, ProviderError, ProviderSnapshot, ProviderWindow,
+};
 pub use state::{AppSettings, AppState, UsageSnapshot};
 pub use usage::UsageService;
 
-use tauri::Emitter;
-use tauri::Manager;
-use tauri::Listener;
-use tauri::{LogicalPosition, LogicalSize, PhysicalPosition};
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::Emitter;
+use tauri::Listener;
+use tauri::Manager;
+use tauri::{LogicalPosition, LogicalSize, PhysicalPosition};
 
 fn mock_snapshot() -> UsageSnapshot {
     UsageSnapshot {
         windows: vec![
-            crate::state::UsageWindow { window: "5h".into(), remaining_percent: 72.0, reset_at: Some("2026-07-16T19:00:00Z".into()) },
-            crate::state::UsageWindow { window: "7d".into(), remaining_percent: 79.0, reset_at: Some("2026-07-22T09:28:00Z".into()) },
+            crate::state::UsageWindow {
+                window: "5h".into(),
+                remaining_percent: 72.0,
+                reset_at: Some("2026-07-16T19:00:00Z".into()),
+            },
+            crate::state::UsageWindow {
+                window: "7d".into(),
+                remaining_percent: 79.0,
+                reset_at: Some("2026-07-22T09:28:00Z".into()),
+            },
         ],
-        status: crate::state::UsageStatus::Fresh { fetched_at: chrono::Utc::now().to_rfc3339() },
+        status: crate::state::UsageStatus::Fresh {
+            fetched_at: chrono::Utc::now().to_rfc3339(),
+        },
     }
 }
 
 fn meter_icon(windows: &[crate::state::UsageWindow], stale: bool) -> tauri::image::Image<'static> {
     let size = 22u32;
     let mut rgba = vec![0u8; (size * size * 4) as usize];
+
+    if windows.is_empty() {
+        // Visible neutral glyph for unavailable/empty state: a small circle outline
+        let cx = 11u32;
+        let cy = 11u32;
+        let r = 6u32;
+        for y in 0..size {
+            for x in 0..size {
+                let dx = x as i32 - cx as i32;
+                let dy = y as i32 - cy as i32;
+                let dist_sq = dx * dx + dy * dy;
+                // Draw circle outline (r-1 to r+1 ring)
+                if dist_sq >= ((r - 1) * (r - 1)) as i32 && dist_sq <= ((r + 1) * (r + 1)) as i32 {
+                    let i = ((y * size + x) * 4) as usize;
+                    rgba[i..i + 4].copy_from_slice(&[145, 145, 155, 255]);
+                }
+            }
+        }
+        // Add a small center dot
+        let dot_r = 2u32;
+        for y in 0..size {
+            for x in 0..size {
+                let dx = x as i32 - cx as i32;
+                let dy = y as i32 - cy as i32;
+                if dx * dx + dy * dy <= (dot_r as i32) * (dot_r as i32) {
+                    let i = ((y * size + x) * 4) as usize;
+                    rgba[i..i + 4].copy_from_slice(&[145, 145, 155, 255]);
+                }
+            }
+        }
+        return tauri::image::Image::new_owned(rgba, size, size);
+    }
+
     for (row, window) in windows.iter().take(2).enumerate() {
-        let y_start = if windows.len() == 1 { 8 } else { 4 + row as u32 * 10 };
+        let y_start = if windows.len() == 1 {
+            8
+        } else {
+            4 + row as u32 * 10
+        };
         let fill = ((window.remaining_percent.clamp(0.0, 100.0) / 100.0) * 18.0).round() as u32;
         for y in y_start..(y_start + 5) {
             for x in 2..20 {
@@ -55,9 +107,18 @@ fn meter_icon(windows: &[crate::state::UsageWindow], stale: bool) -> tauri::imag
 }
 
 fn menu_bar_title(snapshot: &UsageSnapshot) -> String {
-    snapshot.windows.iter().map(|window| {
-        format!("{} {}%", window.window, window.remaining_percent.round() as i32)
-    }).collect::<Vec<_>>().join("  │  ")
+    snapshot
+        .windows
+        .iter()
+        .map(|window| {
+            format!(
+                "{} {}%",
+                window.window,
+                window.remaining_percent.round() as i32
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("  │  ")
 }
 
 /// Tauri 2 application entrypoint.
@@ -68,7 +129,9 @@ pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
             #[cfg(target_os = "macos")]
-            let _ = app.handle().set_activation_policy(tauri::ActivationPolicy::Accessory);
+            let _ = app
+                .handle()
+                .set_activation_policy(tauri::ActivationPolicy::Accessory);
 
             let state = state::AppState::new();
             settings::load_into_state(app.handle(), &state);
@@ -80,19 +143,37 @@ pub fn run() {
             }
             app.manage(state);
 
-            if app.state::<state::AppState>().settings.lock().unwrap().dock_meter_visible {
+            if app
+                .state::<state::AppState>()
+                .settings
+                .lock()
+                .unwrap()
+                .dock_meter_visible
+            {
                 if let Some(window) = app.get_webview_window("dock-meter") {
-                    let settings = app.state::<state::AppState>().settings.lock().unwrap().clone();
+                    let settings = app
+                        .state::<state::AppState>()
+                        .settings
+                        .lock()
+                        .unwrap()
+                        .clone();
                     if let Some(geometry) = settings.dock_meter_geometry {
-                        let _ = window.set_size(LogicalSize::new(geometry.width as f64, geometry.height as f64));
-                        let _ = window.set_position(tauri::PhysicalPosition::new(geometry.x, geometry.y));
+                        let _ = window.set_size(LogicalSize::new(
+                            geometry.width as f64,
+                            geometry.height as f64,
+                        ));
+                        let _ = window
+                            .set_position(tauri::PhysicalPosition::new(geometry.x, geometry.y));
                     } else if let Ok(Some(monitor)) = app.primary_monitor() {
                         let scale = monitor.scale_factor();
                         let size = monitor.size().to_logical::<f64>(scale);
                         let position = monitor.position().to_logical::<f64>(scale);
                         let x = position.x + (size.width - 400.0) / 2.0;
                         let y = position.y + (size.height - 64.0) / 2.0;
-                        let _ = window.set_position(LogicalPosition::new(x.max(position.x), y.max(position.y)));
+                        let _ = window.set_position(LogicalPosition::new(
+                            x.max(position.x),
+                            y.max(position.y),
+                        ));
                     }
                     let _ = window.show();
                 }
@@ -110,7 +191,13 @@ pub fn run() {
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, rect, .. } = event {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        rect,
+                        ..
+                    } = event
+                    {
                         if let Some(window) = tray.app_handle().get_webview_window("main") {
                             if window.is_visible().unwrap_or(false) {
                                 let _ = window.hide();
@@ -127,7 +214,12 @@ pub fn run() {
                     }
                 })
                 .on_menu_event(|app, event| match event.id().as_ref() {
-                    "open" => { if let Some(window) = app.get_webview_window("main") { let _ = window.show(); let _ = window.set_focus(); } }
+                    "open" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
                     "quit" => app.exit(0),
                     _ => {}
                 })
@@ -155,20 +247,15 @@ pub fn run() {
                 let _ = tray.set_icon(Some(meter_icon(&snapshot.windows, false)));
             }
 
-            // Run an initial refresh in the background.
-            let app_handle = app.handle().clone();
-            let service = service.clone();
-            tauri::async_runtime::spawn(async move {
-                if mock_usage {
-                    let snapshot = mock_snapshot();
-                    let _ = app_handle.emit("usage-updated", &snapshot);
-                    return;
-                }
-                let _ = service.refresh();
-                if let Some(snapshot) = service.get_usage_snapshot() {
-                    let _ = app_handle.emit("usage-updated", &snapshot);
-                }
-            });
+            // Do not run an initial refresh here — the frontend owns refresh
+            // scheduling via createRefreshController. The tray listener will
+            // update when the frontend emits "usage-updated" after the first
+            // successful fetch. For mock mode we emit once so the tray
+            // reflects the mock data immediately.
+            if mock_usage {
+                let snapshot = mock_snapshot();
+                let _ = app.handle().emit("usage-updated", &snapshot);
+            }
 
             Ok(())
         })
@@ -183,4 +270,49 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running Tauri application");
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_windows_icon_has_nonzero_alpha() {
+        // Verify the tray icon for empty/failed state has visible pixels
+        // by asserting actual image bytes contain alpha > 0.
+        let icon = meter_icon(&[], false);
+        assert_eq!(icon.width(), 22);
+        assert_eq!(icon.height(), 22);
+        let rgba = icon.rgba();
+        assert_eq!(rgba.len(), 22 * 22 * 4, "RGBA buffer size mismatch");
+        // Center pixel (11,11) should be visible (alpha=255 from circle glyph).
+        let center_idx = (11 * 22 + 11) * 4;
+        assert!(
+            rgba[center_idx + 3] > 0,
+            "Center pixel alpha must be nonzero; glyph is invisible"
+        );
+        // Also verify the circle outline ring has nonzero alpha pixels.
+        let mut has_outline = false;
+        for chunk in rgba.chunks_exact(4) {
+            if chunk[3] > 0 {
+                has_outline = true;
+                break;
+            }
+        }
+        assert!(
+            has_outline,
+            "Icon must have at least one nonzero-alpha pixel"
+        );
+    }
+
+    #[test]
+    fn normal_icon_has_correct_size() {
+        let windows = vec![crate::state::UsageWindow {
+            window: "5h".into(),
+            remaining_percent: 50.0,
+            reset_at: None,
+        }];
+        let icon = meter_icon(&windows, false);
+        assert_eq!(icon.width(), 22);
+        assert_eq!(icon.height(), 22);
+    }
 }

@@ -2,24 +2,30 @@ use crate::provider::CodexUsageProvider;
 use crate::state::{UsageSnapshot, UsageStatus, UsageWindow};
 use std::sync::{Arc, Mutex};
 
+/// Shared cache: holds the last successful (Fresh) snapshot and the current snapshot.
+#[derive(Default)]
+struct UsageCache {
+    /// The most recent snapshot returned by `get_usage_snapshot()`.
+    current_snapshot: Option<UsageSnapshot>,
+    /// The last genuinely Fresh snapshot — used as fallback data for Stale state.
+    last_successful_snapshot: Option<UsageSnapshot>,
+}
+
 /// In-memory service that wraps a `CodexUsageProvider` and manages
 /// the last-successful snapshot. It never persists credentials or
 /// usage history.
 pub struct UsageService<P: CodexUsageProvider> {
     /// The underlying provider.
     provider: P,
-    /// The last-successful snapshot, if any.
-    last_success: Arc<Mutex<Option<UsageSnapshot>>>,
-    /// Timestamp of the last successful fetch (ISO-8601).
-    fetched_at: Arc<Mutex<String>>,
+    /// Shared cache for current and last-successful snapshots.
+    cache: Arc<Mutex<UsageCache>>,
 }
 
 impl<P: CodexUsageProvider + Clone> Clone for UsageService<P> {
     fn clone(&self) -> Self {
         Self {
             provider: self.provider.clone(),
-            last_success: Arc::clone(&self.last_success),
-            fetched_at: Arc::clone(&self.fetched_at),
+            cache: Arc::clone(&self.cache),
         }
     }
 }
@@ -28,8 +34,7 @@ impl<P: CodexUsageProvider> UsageService<P> {
     pub fn new(provider: P) -> Self {
         Self {
             provider,
-            last_success: Arc::new(Mutex::new(None)),
-            fetched_at: Arc::new(Mutex::new(String::new())),
+            cache: Arc::new(Mutex::new(UsageCache::default())),
         }
     }
 
@@ -44,24 +49,27 @@ impl<P: CodexUsageProvider> UsageService<P> {
     }
 
     /// Returns the current snapshot without refreshing.
-    /// Returns `None` if no snapshot has ever been cached.
+    /// Returns `None` only if no refresh has ever been attempted.
     pub fn get_usage_snapshot(&self) -> Option<UsageSnapshot> {
-        self.last_success.lock().unwrap().clone()
+        self.cache.lock().unwrap().current_snapshot.clone()
     }
 
     /// Refreshes usage data from the provider.
     ///
     /// - On success: returns `Ok(UsageSnapshot)` with `Fresh` status.
-    /// - On failure with a prior cached snapshot: returns `Err(UsageSnapshot)`
-    ///   with `Stale` status, preserving the old windows.
-    /// - On failure with no prior snapshot: returns `Err(UsageSnapshot)`
+    /// - On failure with a prior Fresh snapshot: returns `Err(UsageSnapshot)`
+    ///   with `Stale` status, preserving the old windows and fetched_at.
+    /// - On failure with no prior Fresh snapshot: returns `Err(UsageSnapshot)`
     ///   with `Unavailable` status.
+    ///
+    /// Every resulting state (Fresh, Stale, Unavailable) is stored as the
+    /// current snapshot so `get_usage_snapshot()` always returns the latest.
     pub fn refresh(&self) -> Result<UsageSnapshot, UsageSnapshot> {
         let now = chrono::Utc::now().to_rfc3339();
 
         match self.provider.fetch_and_parse() {
-            Ok(provider_snapshot) => {
-                let windows: Vec<UsageWindow> = provider_snapshot
+            Ok(raw) => {
+                let windows: Vec<UsageWindow> = raw
                     .windows
                     .into_iter()
                     .map(|pw| UsageWindow {
@@ -71,47 +79,43 @@ impl<P: CodexUsageProvider> UsageService<P> {
                     })
                     .collect();
 
-                let snapshot = UsageSnapshot {
+                let fresh = UsageSnapshot {
                     windows,
                     status: UsageStatus::Fresh {
                         fetched_at: now.clone(),
                     },
                 };
 
-                *self.fetched_at.lock().unwrap() = now;
-                *self.last_success.lock().unwrap() = Some(snapshot.clone());
-                Ok(snapshot)
+                let mut cache = self.cache.lock().unwrap();
+                cache.last_successful_snapshot = Some(fresh.clone());
+                cache.current_snapshot = Some(fresh.clone());
+                Ok(fresh)
             }
             Err(_) => {
-                let mut last = self.last_success.lock().unwrap();
-                if let Some(ref cached) = *last {
-                    // Preserve cached windows but mark stale.
-                    let stale_status = UsageStatus::Stale {
-                        fetched_at: (*self.fetched_at.lock().unwrap()).clone(),
-                        failed_at: now,
-                        message: "Usage refresh failed; showing cached data".to_string(),
+                let mut cache = self.cache.lock().unwrap();
+                let failure = if let Some(success) = cache.last_successful_snapshot.as_ref() {
+                    let fetched_at = match &success.status {
+                        UsageStatus::Fresh { fetched_at } => fetched_at.clone(),
+                        _ => unreachable!(),
                     };
-                    let stale_snapshot = UsageSnapshot {
-                        windows: cached.windows.clone(),
-                        status: stale_status,
-                    };
-                    // Update the cached snapshot to the stale version so
-                    // subsequent refreshes also see stale (not unavailable).
-                    *last = Some(stale_snapshot.clone());
-                    Err(stale_snapshot)
-                } else {
-                    // No prior data — first load failed.
-                    let unavailable = UsageSnapshot {
-                        windows: Vec::new(),
-                        status: UsageStatus::Unavailable {
-                            message: "Usage data is currently unavailable".to_string(),
+                    UsageSnapshot {
+                        windows: success.windows.clone(),
+                        status: UsageStatus::Stale {
+                            fetched_at,
+                            failed_at: now,
+                            message: "Usage refresh failed; showing cached data".into(),
                         },
-                    };
-                    // Store the unavailable snapshot so get_usage_snapshot
-                    // returns it, and subsequent failures see stale.
-                    *last = Some(unavailable.clone());
-                    Err(unavailable)
-                }
+                    }
+                } else {
+                    UsageSnapshot {
+                        windows: vec![],
+                        status: UsageStatus::Unavailable {
+                            message: "Usage data is currently unavailable".into(),
+                        },
+                    }
+                };
+                cache.current_snapshot = Some(failure.clone());
+                Err(failure)
             }
         }
     }

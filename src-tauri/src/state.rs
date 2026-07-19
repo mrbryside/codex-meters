@@ -31,13 +31,17 @@ pub struct UsageWindow {
 #[serde(tag = "kind")]
 #[serde(rename_all = "camelCase")]
 pub enum UsageStatus {
-    Fresh { fetched_at: String },
+    Fresh {
+        fetched_at: String,
+    },
     Stale {
         fetched_at: String,
         failed_at: String,
         message: String,
     },
-    Unavailable { message: String },
+    Unavailable {
+        message: String,
+    },
 }
 
 /// Application settings.
@@ -67,6 +71,12 @@ impl Default for AppSettings {
             refresh_interval_seconds: 60,
             dock_meter_geometry: None,
         }
+    }
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

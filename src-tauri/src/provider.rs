@@ -34,21 +34,13 @@ pub struct ProviderSnapshot {
 pub enum ProviderError {
     /// The local session source could not be read or is unavailable.
     #[serde(rename = "source_unavailable")]
-    SourceUnavailable {
-        source: String,
-        detail: String,
-    },
+    SourceUnavailable { source: String, detail: String },
     /// The JSON response could not be parsed or has invalid structure.
     #[serde(rename = "parse_error")]
-    ParseError {
-        source: String,
-        detail: String,
-    },
+    ParseError { source: String, detail: String },
     /// Duplicate window identifiers were found in the response.
     #[serde(rename = "duplicate_window")]
-    DuplicateWindow {
-        window: String,
-    },
+    DuplicateWindow { window: String },
 }
 
 impl std::fmt::Display for ProviderError {
@@ -93,12 +85,11 @@ struct RawWindow {
 /// This is the core normalizer: it validates structure, rejects duplicates,
 /// filters unsupported windows, and clamps percentages to [0.0, 100.0].
 pub fn parse_provider_response(raw: &str) -> Result<ProviderSnapshot, ProviderError> {
-    let response: RawResponse = serde_json::from_str(raw).map_err(|e| {
-        ProviderError::ParseError {
+    let response: RawResponse =
+        serde_json::from_str(raw).map_err(|e| ProviderError::ParseError {
             source: "json".to_string(),
             detail: e.to_string(),
-        }
-    })?;
+        })?;
 
     // If the response contains an error field, treat it as unavailable.
     if let Some(ref err) = response.error {
@@ -174,11 +165,9 @@ impl FileBackedProvider {
 
 impl CodexUsageProvider for FileBackedProvider {
     fn fetch(&self) -> Result<String, ProviderError> {
-        std::fs::read_to_string(&self.source_path).map_err(|e| {
-            ProviderError::SourceUnavailable {
-                source: self.source_name.clone(),
-                detail: e.to_string(),
-            }
+        std::fs::read_to_string(&self.source_path).map_err(|e| ProviderError::SourceUnavailable {
+            source: self.source_name.clone(),
+            detail: e.to_string(),
         })
     }
 }
@@ -218,16 +207,15 @@ impl CodexAppServerProvider {
     }
 
     pub fn from_environment() -> Self {
-        let path = std::env::var_os("CODEX_CLI_PATH")
-            .map(PathBuf::from)
-            .or_else(|| {
-                std::env::var_os("HOME").map(|home| {
-                    PathBuf::from(home)
-                        .join("Applications/ChatGPT.app/Contents/Resources/codex")
-                })
-            })
-            .unwrap_or_else(|| PathBuf::from("codex"));
-        Self::new(path, Duration::from_secs(10))
+        Self::new(
+            crate::provider::resolve_codex_path(),
+            Duration::from_secs(10),
+        )
+    }
+
+    /// Resolve the Codex CLI path. Delegates to the module-level `resolve_codex_path`.
+    pub fn resolve_codex_path() -> PathBuf {
+        crate::provider::resolve_codex_path()
     }
 
     fn read_protocol_output(&self) -> Result<String, ProviderError> {
@@ -247,25 +235,35 @@ impl CodexAppServerProvider {
             "{\"jsonrpc\":\"2.0\",\"method\":\"initialized\"}\n",
             "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"account/rateLimits/read\",\"params\":null}\n"
         );
-        let mut stdin = child.stdin.take().ok_or_else(|| ProviderError::SourceUnavailable {
-            source: "codex_app_server".to_string(),
-            detail: "Codex app-server stdin could not be opened".to_string(),
-        })?;
-        {
-            stdin.write_all(requests.as_bytes()).map_err(|_| ProviderError::SourceUnavailable {
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| ProviderError::SourceUnavailable {
                 source: "codex_app_server".to_string(),
-                detail: "Codex app-server request could not be sent".to_string(),
+                detail: "Codex app-server stdin could not be opened".to_string(),
             })?;
+        {
+            stdin
+                .write_all(requests.as_bytes())
+                .map_err(|_| ProviderError::SourceUnavailable {
+                    source: "codex_app_server".to_string(),
+                    detail: "Codex app-server request could not be sent".to_string(),
+                })?;
         }
 
-        let stdout = child.stdout.take().ok_or_else(|| ProviderError::SourceUnavailable {
-            source: "codex_app_server".to_string(),
-            detail: "Codex app-server stdout could not be opened".to_string(),
-        })?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| ProviderError::SourceUnavailable {
+                source: "codex_app_server".to_string(),
+                detail: "Codex app-server stdout could not be opened".to_string(),
+            })?;
         let (sender, receiver) = mpsc::channel();
         thread::spawn(move || {
-            for line in BufReader::new(stdout).lines().flatten() {
-                let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
+            for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+                let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) else {
+                    continue;
+                };
                 if value.get("id") == Some(&serde_json::json!(2)) {
                     let _ = sender.send(line);
                     break;
@@ -376,10 +374,20 @@ pub fn parse_app_server_response(raw: &str) -> Result<ProviderSnapshot, Provider
             })?;
 
         let mut windows = Vec::new();
-        for window in [snapshot.primary.as_ref(), snapshot.secondary.as_ref()].into_iter().flatten() {
-            let Some(name) = window_name(window.window_duration_mins) else { continue };
-            if windows.iter().any(|existing: &ProviderWindow| existing.window == name) {
-                return Err(ProviderError::DuplicateWindow { window: name.to_string() });
+        for window in [snapshot.primary.as_ref(), snapshot.secondary.as_ref()]
+            .into_iter()
+            .flatten()
+        {
+            let Some(name) = window_name(window.window_duration_mins) else {
+                continue;
+            };
+            if windows
+                .iter()
+                .any(|existing: &ProviderWindow| existing.window == name)
+            {
+                return Err(ProviderError::DuplicateWindow {
+                    window: name.to_string(),
+                });
             }
             let used = window.used_percent.clamp(0, 100) as f32;
             let reset_at = window
@@ -400,6 +408,88 @@ pub fn parse_app_server_response(raw: &str) -> Result<ProviderSnapshot, Provider
     })
 }
 
+/// Pure inputs for the Codex CLI path resolver.
+/// Each field represents one tier of the resolver; the resolver checks
+/// them in order and returns the first existing file.
+struct CodexResolverInputs {
+    /// Explicit override from `CODEX_CLI_PATH` env var.
+    explicit_override: Option<PathBuf>,
+    /// Standard macOS `/Applications/ChatGPT.app/Contents/Resources/codex`.
+    standard_app_path: PathBuf,
+    /// User-specific `$HOME/Applications/ChatGPT.app/Contents/Resources/codex`.
+    user_app_path: Option<PathBuf>,
+    /// Known CLI installation paths (checked in order).
+    known_cli_paths: Vec<PathBuf>,
+    /// Directories from `PATH` to search for a `codex` binary.
+    path_dirs: Vec<PathBuf>,
+}
+
+/// Pure helper: given resolver inputs, return the first existing, valid codex path.
+///
+/// A "valid" path is an existing file (not directory). The function checks
+/// each input in precedence order and returns immediately on the first match.
+/// Returns `"codex"` as the last-resort fallback.
+fn resolve_codex_path_from(i: &CodexResolverInputs) -> PathBuf {
+    // 1. Explicit override
+    if i.explicit_override.as_ref().is_some_and(|p| p.is_file()) {
+        return i.explicit_override.clone().unwrap();
+    }
+    // 2. Standard macOS /Applications path
+    if i.standard_app_path.is_file() {
+        return i.standard_app_path.clone();
+    }
+    // 3. User-specific path
+    if i.user_app_path.as_ref().is_some_and(|p| p.is_file()) {
+        return i.user_app_path.clone().unwrap();
+    }
+    // 4. Known CLI paths
+    for path in &i.known_cli_paths {
+        if path.is_file() {
+            return path.clone();
+        }
+    }
+    // 5. PATH search
+    for dir in &i.path_dirs {
+        let candidate = dir.join("codex");
+        if candidate.is_file() {
+            return candidate;
+        }
+    }
+    // 6. Fallback
+    PathBuf::from("codex")
+}
+
+/// Resolve the Codex CLI path from environment, known locations, and PATH.
+///
+/// Priority:
+/// 1. `CODEX_CLI_PATH` environment variable (explicit override).
+/// 2. `/Applications/ChatGPT.app/Contents/Resources/codex` (standard macOS).
+/// 3. `$HOME/Applications/ChatGPT.app/Contents/Resources/codex` (user-specific).
+/// 4. Known CLI paths in `/opt/homebrew/bin/codex` and `/usr/local/bin/codex`.
+/// 5. `codex` on PATH (controlled search via PATH directory scan).
+///
+/// Returns the first existing, valid path found.
+pub fn resolve_codex_path() -> PathBuf {
+    let explicit = std::env::var_os("CODEX_CLI_PATH").map(PathBuf::from);
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let path_dirs: Vec<PathBuf> = std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).collect())
+        .unwrap_or_default();
+
+    let inputs = CodexResolverInputs {
+        explicit_override: explicit,
+        standard_app_path: PathBuf::from("/Applications/ChatGPT.app/Contents/Resources/codex"),
+        user_app_path: home.map(|h| h.join("Applications/ChatGPT.app/Contents/Resources/codex")),
+        known_cli_paths: vec![
+            PathBuf::from("/opt/homebrew/bin/codex"),
+            PathBuf::from("/usr/local/bin/codex"),
+        ],
+        path_dirs,
+    };
+
+    resolve_codex_path_from(&inputs)
+}
+
 fn window_name(duration_minutes: Option<i64>) -> Option<&'static str> {
     match duration_minutes {
         Some(300) => Some("5h"),
@@ -411,6 +501,7 @@ fn window_name(duration_minutes: Option<i64>) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
     #[test]
     fn parse_valid_response() {
@@ -431,7 +522,10 @@ mod tests {
         let json = r#"{"error": "session_expired"}"#;
         let result = parse_provider_response(json);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ProviderError::SourceUnavailable { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            ProviderError::SourceUnavailable { .. }
+        ));
     }
 
     #[test]
@@ -444,7 +538,10 @@ mod tests {
         }"#;
         let result = parse_provider_response(json);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ProviderError::DuplicateWindow { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            ProviderError::DuplicateWindow { .. }
+        ));
     }
 
     #[test]
@@ -513,12 +610,14 @@ mod tests {
 
     #[test]
     fn file_backed_provider_reads_file() {
-        let provider = FileBackedProvider::new(
-            "/Users/s103450/personal/token-meter/src-tauri/fixtures/usage-5h-7d.json",
-            "test_fixture",
-        );
+        let fixture_path = format!("{}/fixtures/usage-5h-7d.json", env!("CARGO_MANIFEST_DIR"));
+        let provider = FileBackedProvider::new(&fixture_path, "test_fixture");
         let result = provider.fetch();
-        assert!(result.is_ok());
+        assert!(
+            result.is_ok(),
+            "fixture should be readable at {}",
+            fixture_path
+        );
         let json = result.unwrap();
         let snapshot = parse_provider_response(&json).unwrap();
         assert_eq!(snapshot.windows.len(), 2);
@@ -526,13 +625,13 @@ mod tests {
 
     #[test]
     fn file_backed_provider_missing_file() {
-        let provider = FileBackedProvider::new(
-            "/nonexistent/path.json",
-            "missing_fixture",
-        );
+        let provider = FileBackedProvider::new("/nonexistent/path.json", "missing_fixture");
         let result = provider.fetch();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ProviderError::SourceUnavailable { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            ProviderError::SourceUnavailable { .. }
+        ));
     }
 
     #[test]
@@ -558,5 +657,202 @@ mod tests {
         assert!((snapshot.windows[0].remaining_percent - 72.0).abs() < f32::EPSILON);
         assert_eq!(snapshot.windows[1].window, "7d");
         assert!((snapshot.windows[1].remaining_percent - 45.0).abs() < f32::EPSILON);
+    }
+
+    // --- Resolver tests ---
+
+    /// Helper: create parent dirs and write an empty file, panicking on failure.
+    fn make_file(dir: &Path, name: &str) -> PathBuf {
+        let p = dir.join(name);
+        std::fs::create_dir_all(p.parent().unwrap()).expect("create parent dirs");
+        std::fs::write(&p, "").expect("write file");
+        p
+    }
+
+    #[test]
+    fn resolve_returns_fallback_when_nothing_exists() {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        // All paths point inside tmp but no files are created → fallback.
+        let standard = tmp.path().join("standard");
+        let user = tmp.path().join("user");
+        let known = tmp.path().join("known");
+        let inputs = CodexResolverInputs {
+            explicit_override: None,
+            standard_app_path: standard,
+            user_app_path: Some(user),
+            known_cli_paths: vec![known],
+            path_dirs: vec![],
+        };
+        assert_eq!(resolve_codex_path_from(&inputs), PathBuf::from("codex"));
+    }
+
+    #[test]
+    fn resolve_prefers_explicit_override() {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let override_path = make_file(tmp.path(), "override");
+        let standard = make_file(tmp.path(), "standard");
+
+        let inputs = CodexResolverInputs {
+            explicit_override: Some(override_path.clone()),
+            standard_app_path: standard,
+            user_app_path: None,
+            known_cli_paths: vec![],
+            path_dirs: vec![],
+        };
+        assert_eq!(resolve_codex_path_from(&inputs), override_path);
+    }
+
+    #[test]
+    fn resolve_skips_invalid_override_falls_to_standard() {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let standard = make_file(tmp.path(), "standard");
+        // Invalid override points to a path inside tmp that doesn't exist.
+        let invalid_override = tmp.path().join("nonexistent-override");
+
+        let inputs = CodexResolverInputs {
+            explicit_override: Some(invalid_override),
+            standard_app_path: standard.clone(),
+            user_app_path: None,
+            known_cli_paths: vec![],
+            path_dirs: vec![],
+        };
+        assert_eq!(resolve_codex_path_from(&inputs), standard);
+    }
+
+    #[test]
+    fn resolve_standard_before_user_before_known_before_path() {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+
+        let standard = make_file(tmp.path(), "standard");
+        let user = make_file(tmp.path(), "user");
+        let known = make_file(tmp.path(), "known");
+        let path_dir = tmp.path().join("path");
+        std::fs::create_dir_all(&path_dir).expect("create path dir");
+        let path_file = make_file(&path_dir, "codex");
+
+        let inputs = CodexResolverInputs {
+            explicit_override: None,
+            standard_app_path: standard.clone(),
+            user_app_path: Some(user.clone()),
+            known_cli_paths: vec![known.clone()],
+            path_dirs: vec![path_dir],
+        };
+        assert_eq!(resolve_codex_path_from(&inputs), standard);
+
+        // Remove standard → should find user
+        std::fs::remove_file(&standard).expect("remove standard");
+        assert_eq!(resolve_codex_path_from(&inputs), user);
+
+        // Remove user → should find known
+        std::fs::remove_file(&user).expect("remove user");
+        assert_eq!(resolve_codex_path_from(&inputs), known);
+
+        // Remove known → should find PATH
+        std::fs::remove_file(&known).expect("remove known");
+        assert_eq!(resolve_codex_path_from(&inputs), path_file);
+    }
+
+    #[test]
+    fn resolve_known_cli_paths_check_order() {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let known1 = make_file(tmp.path(), "known1");
+        let known2 = make_file(tmp.path(), "known2");
+        // standard path points to non-existent path inside tmp.
+        let standard = tmp.path().join("standard");
+
+        let inputs = CodexResolverInputs {
+            explicit_override: None,
+            standard_app_path: standard,
+            user_app_path: None,
+            known_cli_paths: vec![known1.clone(), known2.clone()],
+            path_dirs: vec![],
+        };
+        assert_eq!(resolve_codex_path_from(&inputs), known1);
+
+        std::fs::remove_file(&known1).expect("remove known1");
+        assert_eq!(resolve_codex_path_from(&inputs), known2);
+    }
+
+    #[test]
+    fn resolve_path_dirs_check_order() {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let dir1 = tmp.path().join("dir1");
+        let dir2 = tmp.path().join("dir2");
+        std::fs::create_dir_all(&dir1).expect("create dir1");
+        std::fs::create_dir_all(&dir2).expect("create dir2");
+        let file1 = make_file(&dir1, "codex");
+        let file2 = make_file(&dir2, "codex");
+        let standard = tmp.path().join("standard");
+
+        let inputs = CodexResolverInputs {
+            explicit_override: None,
+            standard_app_path: standard,
+            user_app_path: None,
+            known_cli_paths: vec![],
+            path_dirs: vec![dir1, dir2],
+        };
+        assert_eq!(resolve_codex_path_from(&inputs), file1);
+
+        std::fs::remove_file(&file1).expect("remove file1");
+        assert_eq!(resolve_codex_path_from(&inputs), file2);
+    }
+
+    #[test]
+    fn resolve_rejects_directory_at_every_tier() {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+
+        // Directory at explicit override position
+        let override_dir = tmp.path().join("override-dir");
+        std::fs::create_dir_all(&override_dir).expect("create override dir");
+
+        let standard = make_file(tmp.path(), "standard");
+
+        let inputs = CodexResolverInputs {
+            explicit_override: Some(override_dir),
+            standard_app_path: standard.clone(),
+            user_app_path: None,
+            known_cli_paths: vec![],
+            path_dirs: vec![],
+        };
+        // Directory should be rejected, fall through to standard
+        assert_eq!(resolve_codex_path_from(&inputs), standard);
+    }
+
+    #[test]
+    fn resolve_rejects_directory_in_known_cli_paths() {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let known_dir = tmp.path().join("known-dir");
+        std::fs::create_dir_all(&known_dir).expect("create known dir");
+        let standard = tmp.path().join("standard");
+
+        let inputs = CodexResolverInputs {
+            explicit_override: None,
+            standard_app_path: standard,
+            user_app_path: None,
+            known_cli_paths: vec![known_dir],
+            path_dirs: vec![],
+        };
+        // Directory should be rejected, fall through to fallback
+        assert_eq!(resolve_codex_path_from(&inputs), PathBuf::from("codex"));
+    }
+
+    #[test]
+    fn resolve_rejects_directory_in_path_dirs() {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let dir = tmp.path().join("path-dir");
+        // Create path-dir/codex as a directory (not a file)
+        let codex_dir = dir.join("codex");
+        std::fs::create_dir_all(&codex_dir).expect("create codex dir");
+        let standard = tmp.path().join("standard");
+
+        let inputs = CodexResolverInputs {
+            explicit_override: None,
+            standard_app_path: standard,
+            user_app_path: None,
+            known_cli_paths: vec![],
+            path_dirs: vec![dir],
+        };
+        // Directory should be rejected, fall through to fallback
+        assert_eq!(resolve_codex_path_from(&inputs), PathBuf::from("codex"));
     }
 }

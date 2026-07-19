@@ -31,9 +31,10 @@ pub async fn get_usage_snapshot(
 ) -> Result<SnapshotResponse, AppError> {
     Ok(SnapshotResponse {
         snapshot: service.get_usage_snapshot(),
-        error: service.get_usage_snapshot().is_none().then(|| {
-            AppError::usage_unavailable("No snapshot available yet")
-        }),
+        error: service
+            .get_usage_snapshot()
+            .is_none()
+            .then(|| AppError::usage_unavailable("No snapshot available yet")),
     })
 }
 
@@ -64,13 +65,20 @@ pub async fn refresh_usage(
 }
 
 #[tauri::command]
-pub fn get_app_settings(app: tauri::AppHandle, state: tauri::State<'_, crate::state::AppState>) -> crate::state::AppSettings {
+pub fn get_app_settings(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::state::AppState>,
+) -> crate::state::AppSettings {
     let _ = app;
     state.settings.lock().unwrap().clone()
 }
 
 #[tauri::command]
-pub fn set_dock_meter_visible(app: tauri::AppHandle, state: tauri::State<'_, crate::state::AppState>, visible: bool) -> Result<crate::state::AppSettings, AppError> {
+pub fn set_dock_meter_visible(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::state::AppState>,
+    visible: bool,
+) -> Result<crate::state::AppSettings, AppError> {
     let mut settings = state.settings.lock().unwrap();
     settings.dock_meter_visible = visible;
     let persisted = crate::settings::PersistedSettings::from(&*settings);
@@ -78,7 +86,10 @@ pub fn set_dock_meter_visible(app: tauri::AppHandle, state: tauri::State<'_, cra
     if let Some(window) = app.get_webview_window("dock-meter") {
         if visible {
             if let Some(geometry) = settings.dock_meter_geometry.as_ref() {
-                let _ = window.set_size(LogicalSize::new(geometry.width as f64, geometry.height as f64));
+                let _ = window.set_size(LogicalSize::new(
+                    geometry.width as f64,
+                    geometry.height as f64,
+                ));
                 let _ = window.set_position(PhysicalPosition::new(geometry.x, geometry.y));
             } else if let Ok(Some(monitor)) = app.primary_monitor() {
                 let scale = monitor.scale_factor();
@@ -86,10 +97,13 @@ pub fn set_dock_meter_visible(app: tauri::AppHandle, state: tauri::State<'_, cra
                 let position = monitor.position().to_logical::<f64>(scale);
                 let x = position.x + (size.width - 400.0) / 2.0;
                 let y = position.y + (size.height - 64.0) / 2.0;
-                let _ = window.set_position(LogicalPosition::new(x.max(position.x), y.max(position.y)));
+                let _ =
+                    window.set_position(LogicalPosition::new(x.max(position.x), y.max(position.y)));
             }
             let _ = window.show();
-        } else { let _ = window.hide(); }
+        } else {
+            let _ = window.hide();
+        }
     }
     let _ = app.emit("dock-meter-visibility-changed", &*settings);
     Ok(settings.clone())
@@ -105,17 +119,28 @@ pub fn set_dock_meter_geometry(
     height: u32,
 ) -> Result<crate::state::AppSettings, AppError> {
     if !(160..=520).contains(&width) || !(48..=180).contains(&height) {
-        return Err(AppError::settings_error("Dock meter geometry is outside the supported range"));
+        return Err(AppError::settings_error(
+            "Dock meter geometry is outside the supported range",
+        ));
     }
     let mut settings = state.settings.lock().unwrap();
-    settings.dock_meter_geometry = Some(crate::state::DockMeterGeometry { x, y, width, height });
+    settings.dock_meter_geometry = Some(crate::state::DockMeterGeometry {
+        x,
+        y,
+        width,
+        height,
+    });
     let persisted = crate::settings::PersistedSettings::from(&*settings);
     crate::settings::save_settings(&app, &persisted).map_err(AppError::settings_error)?;
     Ok(settings.clone())
 }
 
 #[tauri::command]
-pub fn set_launch_at_login(app: tauri::AppHandle, state: tauri::State<'_, crate::state::AppState>, enabled: bool) -> Result<crate::state::AppSettings, AppError> {
+pub fn set_launch_at_login(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::state::AppState>,
+    enabled: bool,
+) -> Result<crate::state::AppSettings, AppError> {
     crate::login_launch::set_enabled(&app, enabled).map_err(AppError::settings_error)?;
     let mut settings = state.settings.lock().unwrap();
     settings.launch_at_login = enabled;
@@ -125,8 +150,16 @@ pub fn set_launch_at_login(app: tauri::AppHandle, state: tauri::State<'_, crate:
 }
 
 #[tauri::command]
-pub fn set_refresh_interval(app: tauri::AppHandle, state: tauri::State<'_, crate::state::AppState>, seconds: u64) -> Result<crate::state::AppSettings, AppError> {
-    if !matches!(seconds, 10 | 30 | 60) { return Err(AppError::settings_error("Refresh interval must be 10, 30, or 60 seconds")); }
+pub fn set_refresh_interval(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::state::AppState>,
+    seconds: u64,
+) -> Result<crate::state::AppSettings, AppError> {
+    if !matches!(seconds, 10 | 30 | 60) {
+        return Err(AppError::settings_error(
+            "Refresh interval must be 10, 30, or 60 seconds",
+        ));
+    }
     let mut settings = state.settings.lock().unwrap();
     settings.refresh_interval_seconds = seconds;
     let persisted = crate::settings::PersistedSettings::from(&*settings);
