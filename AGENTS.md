@@ -2,7 +2,7 @@
 
 macOS-first Tauri menu-bar and Dock meter for displaying Codex `5h` and `7d` usage limits.
 
-`Last documented commit: 98c892820e975d39ad435b28fb711dcebbd383ce`
+`Last documented commit: cf2ef2325508f7405cf8121d049f25276c07bb1c`
 
 ## Project structure
 
@@ -13,7 +13,7 @@ macOS-first Tauri menu-bar and Dock meter for displaying Codex `5h` and `7d` usa
 | `src-tauri/fixtures/` | Provider and usage fixtures used by tests and mock scenarios. |
 | `src-tauri/tests/` | Rust usage and provider behavior tests. |
 | `src-tauri/tauri.conf.json` | Tauri windows, bundle metadata, macOS behavior, and app identity. |
-| `scripts/` | Package postinstall and macOS smoke-test scripts. |
+| `scripts/` | Package postinstall, package-component metadata, package validation, and macOS smoke-test scripts. |
 | `install.sh` | Interactive DMG installer with a selectable destination folder. |
 | `install-pkg.sh` | Automatic package installer for `/Applications`. |
 | `Makefile` | Reproducible frontend build, native bundle, package, and release-asset workflow. |
@@ -40,4 +40,3 @@ When adding new context:
 4. If it is a new top-level category, add a row to the table above and to `docs/agents/README.md`.
 5. Never paste long details directly into `AGENTS.md`.
 6. Any new document under `docs/agents/` must start with a short “when to read this” description, use an index table when it covers multiple subtopics, and keep long details in linked subfiles.
-

@@ -14,5 +14,6 @@ The frontend is a small Vite/TypeScript app. `src/main.ts` coordinates applicati
 
 Production frontend output is `dist/`. `bun run build` runs TypeScript checking before Vite emits the bundle. The normal frontend mock flag is `VITE_MOCK_USAGE=true`; it must be paired with the Tauri mock flag when running the full app.
 
-Back to [architecture/index.md](index.md)
+Refresh ownership is limited to the main popover window. The Dock-meter window subscribes to `usage-updated` events and uses no refresh timer of its own, preventing duplicate app-server requests on startup and during periodic refreshes.
 
+Back to [architecture/index.md](index.md)
