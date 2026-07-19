@@ -7,6 +7,7 @@ The Rust side reads the signed-in Codex desktop app's local app-server rate-limi
 | `src-tauri/src/provider.rs` | Locate and query the Codex provider, parse responses, and handle provider failures. |
 | `src-tauri/src/usage.rs` | Normalize supported windows, percentages, reset timestamps, unavailable values, and duplicate windows. |
 | `src-tauri/src/commands.rs` | Tauri commands used by the frontend for usage, settings, geometry, and controls. |
+| `src-tauri/src/refresh.rs` | Native periodic usage polling and refresh-interval wakeups. |
 | `src-tauri/src/state.rs` | Shared runtime state and event coordination. |
 | `src-tauri/src/settings.rs` | Persist refresh interval, Dock mode, launch behavior, and Dock geometry. |
 | `src-tauri/src/login_launch.rs` | Register launch-at-login using macOS launch services/fallback behavior. |
@@ -18,6 +19,6 @@ The mock backend is enabled with `CODEX_MOCK_USAGE=true`. Provider fixtures unde
 
 `UsageService` keeps the current UI snapshot separate from the last genuinely successful snapshot. Failures before any success are `Unavailable`; failures after success are `Stale` while preserving the last successful windows. Do not hold the cache lock while calling the provider.
 
-The tray starts with a visible neutral glyph even when no usage windows are available. Only the main popover creates the frontend refresh controller; the Dock meter consumes usage events without starting another timer.
+The tray starts with a visible neutral glyph even when no usage windows are available. A single native polling loop refreshes immediately at startup and then at the selected interval, so polling continues while the popover WebView is hidden. Both frontend windows consume the resulting usage events without creating timers.
 
 Back to [architecture/index.md](index.md)

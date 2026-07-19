@@ -153,6 +153,7 @@ pub fn set_launch_at_login(
 pub fn set_refresh_interval(
     app: tauri::AppHandle,
     state: tauri::State<'_, crate::state::AppState>,
+    refresh_loop: tauri::State<'_, crate::refresh::RefreshLoopHandle>,
     seconds: u64,
 ) -> Result<crate::state::AppSettings, AppError> {
     if !matches!(seconds, 10 | 30 | 60) {
@@ -164,5 +165,8 @@ pub fn set_refresh_interval(
     settings.refresh_interval_seconds = seconds;
     let persisted = crate::settings::PersistedSettings::from(&*settings);
     crate::settings::save_settings(&app, &persisted).map_err(AppError::settings_error)?;
-    Ok(settings.clone())
+    let updated = settings.clone();
+    drop(settings);
+    refresh_loop.wake();
+    Ok(updated)
 }

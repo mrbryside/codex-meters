@@ -2,6 +2,7 @@ pub mod commands;
 pub mod error;
 pub mod login_launch;
 pub mod provider;
+pub mod refresh;
 pub mod settings;
 pub mod state;
 pub mod usage;
@@ -19,12 +20,11 @@ pub use usage::UsageService;
 
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::Emitter;
 use tauri::Listener;
 use tauri::Manager;
 use tauri::{LogicalPosition, LogicalSize, PhysicalPosition};
 
-fn mock_snapshot() -> UsageSnapshot {
+pub(crate) fn mock_snapshot() -> UsageSnapshot {
     UsageSnapshot {
         windows: vec![
             crate::state::UsageWindow {
@@ -247,15 +247,13 @@ pub fn run() {
                 let _ = tray.set_icon(Some(meter_icon(&snapshot.windows, false)));
             }
 
-            // Do not run an initial refresh here — the frontend owns refresh
-            // scheduling via createRefreshController. The tray listener will
-            // update when the frontend emits "usage-updated" after the first
-            // successful fetch. For mock mode we emit once so the tray
-            // reflects the mock data immediately.
-            if mock_usage {
-                let snapshot = mock_snapshot();
-                let _ = app.handle().emit("usage-updated", &snapshot);
-            }
+            // Native polling keeps usage current even while macOS throttles the
+            // hidden popover WebView. The first refresh runs immediately.
+            app.manage(refresh::RefreshLoopHandle::start(
+                app.handle().clone(),
+                service,
+                mock_usage,
+            ));
 
             Ok(())
         })

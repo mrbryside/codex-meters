@@ -1,7 +1,6 @@
 import "./ui/styles.css";
 import { api } from "./ui/tauri-api";
 import { createStore } from "./ui/state";
-import { createRefreshController } from "./ui/refresh-controller";
 import { renderBars, renderDockBars } from "./ui/render";
 import type { DockMeterGeometry, UsageSnapshot } from "./types";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -19,6 +18,19 @@ const mockSnapshot: UsageSnapshot = {
   status: { kind: "fresh", fetchedAt: new Date().toISOString() },
 };
 const root = document.querySelector<HTMLDivElement>("#app")!;
+
+const refreshUsage = async () => {
+  try {
+    if (mockUsage) {
+      store.snapshot = mockSnapshot;
+    } else {
+      store.snapshot = (await api.refresh()).snapshot;
+    }
+  } finally {
+    store.loading = false;
+    render();
+  }
+};
 
 let settingsLoaded = !isDockMeter;
 let dockSize: { width: number; height: number } | null = null;
@@ -108,28 +120,17 @@ const render = () => {
   const hasStatus = store.snapshot?.status.kind !== "fresh";
   void currentWindow.setSize(new LogicalSize(280, (rows > 1 ? 156 : 124) + (hasStatus ? 18 : 0)));
   root.innerHTML = `<main class="card"><div class="title"><span>Codex limits</span><button class="icon-button" id="refresh" aria-label="Refresh usage" title="Refresh usage">↻</button></div><div class="divider" role="separator"></div>${renderBars(store.snapshot)}<div class="controls"><button class="icon-button ${dockOn ? "active" : ""}" id="dock" aria-label="Toggle Dock meter" aria-pressed="${dockOn}" title="Dock meter: ${dockOn ? "On" : "Off"}">▥</button><select id="interval" aria-label="Refresh interval" title="Refresh interval"><option value="10" ${store.settings.refreshIntervalSeconds === 10 ? "selected" : ""}>10s</option><option value="30" ${store.settings.refreshIntervalSeconds === 30 ? "selected" : ""}>30s</option><option value="60" ${store.settings.refreshIntervalSeconds === 60 ? "selected" : ""}>60s</option></select></div></main>`;
-  root.querySelector("#refresh")?.addEventListener("click", () => controller.refresh());
+  root.querySelector("#refresh")?.addEventListener("click", () => { void refreshUsage(); });
   root.querySelector("#dock")?.addEventListener("click", async () => {
     suppressBlurUntil = Date.now() + 500;
     try { store.settings = await api.setDock(!store.settings.dockMeterVisible); render(); } catch (error) { console.error("Could not toggle Dock meter", error); }
   });
   root.querySelector<HTMLSelectElement>("#interval")?.addEventListener("change", async (event) => {
     const seconds = Number((event.target as HTMLSelectElement).value) as 10 | 30 | 60;
-    try { store.settings = await api.setRefreshInterval(seconds); controller.setInterval(seconds); render(); } catch (error) { console.error("Could not update refresh interval", error); }
+    try { store.settings = await api.setRefreshInterval(seconds); render(); } catch (error) { console.error("Could not update refresh interval", error); }
   });
 };
-
-// Only the main popover window owns refresh scheduling and its interval timer.
-// The dock-meter window subscribes to "usage-updated" events and renders,
-// but must not start its own refresh timer. createRefreshController is only
-// called for the main window so its setInterval never runs on dock.
-const controller: { refresh: () => void; setInterval: (s: number) => void } = isDockMeter
-  ? { refresh: () => {}, setInterval: (_s: number) => {} }
-  : createRefreshController(store, render, mockUsage ? async () => ({ snapshot: mockSnapshot, error: false }) : api.refresh);
 
 api.snapshot().then((response) => { store.snapshot = mockUsage ? mockSnapshot : response.snapshot; store.loading = false; render(); }).catch(() => { store.snapshot = mockUsage ? mockSnapshot : null; store.loading = false; render(); });
 api.settings().then((settings) => { store.settings = settings; settingsLoaded = true; render(); }).catch(() => { settingsLoaded = true; render(); });
 api.onUsage((snapshot: UsageSnapshot) => { store.snapshot = mockUsage ? mockSnapshot : snapshot; render(); });
-if (!isDockMeter) {
-  controller.refresh();
-}

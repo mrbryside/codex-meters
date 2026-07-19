@@ -9,11 +9,10 @@ The frontend is a small Vite/TypeScript app. `src/main.ts` coordinates applicati
 | `src/ui/state.ts` | Frontend state representation. |
 | `src/ui/render.ts` | DOM rendering for bars, percentages, reset times, stale status, and controls. |
 | `src/ui/styles.css` | Codex-themed layout, sizing, colors, borders, and responsive meter rows. |
-| `src/ui/refresh-controller.ts` | Refresh interval scheduling and refresh-source injection for mock mode. |
 | `src/ui/tauri-api.ts` | Frontend wrapper around Tauri commands/events. |
 
 Production frontend output is `dist/`. `bun run build` runs TypeScript checking before Vite emits the bundle. The normal frontend mock flag is `VITE_MOCK_USAGE=true`; it must be paired with the Tauri mock flag when running the full app.
 
-Refresh ownership is limited to the main popover window. The Dock-meter window subscribes to `usage-updated` events and uses no refresh timer of its own, preventing duplicate app-server requests on startup and during periodic refreshes.
+The frontend does not own periodic refresh timers. Both windows subscribe to native `usage-updated` events, and the main popover can also request an immediate manual refresh.
 
 Back to [architecture/index.md](index.md)
