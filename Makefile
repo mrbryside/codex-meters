@@ -12,7 +12,7 @@ RUST_PATH := $(HOME)/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$(PATH)
 export: bundle
 	mkdir -p "$(OUTPUT_DIR)"
 	rm -rf "$(OUTPUT_DIR)/Codex Meters.app"
-	rm -f "$(OUTPUT_DIR)"/*.dmg "$(OUTPUT_DIR)/Codex Meters.pkg"
+	rm -f "$(OUTPUT_DIR)"/*.dmg(N) "$(OUTPUT_DIR)/Codex Meters.pkg"
 	cp "$(BUNDLE_DIR)"/dmg/*.dmg "$(OUTPUT_DIR)/"
 	ditto "$(BUNDLE_DIR)/macos/Codex Meters.app" "$(OUTPUT_DIR)/Codex Meters.app"
 	pkgbuild --component "$(BUNDLE_DIR)/macos/Codex Meters.app" --install-location "/Applications" --scripts "scripts/pkg" --identifier "com.codex.tokenmeter" --version "0.1.0" "$(OUTPUT_DIR)/Codex Meters.pkg"
@@ -29,7 +29,7 @@ bundle: frontend
 	PATH="$(RUST_PATH)" bun run tauri build --bundles app dmg
 
 dmg: bundle
-	rm -f "$(OUTPUT_DIR)"/*.dmg
+	rm -f "$(OUTPUT_DIR)"/*.dmg(N)
 	cp "$(BUNDLE_DIR)"/dmg/*.dmg "$(OUTPUT_DIR)/"
 
 app: bundle
